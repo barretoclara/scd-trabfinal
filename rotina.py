@@ -2,8 +2,8 @@ import subprocess
 import random
 import time
 
-n = 3  # número de processos
-r = 5  # repetições por processo
+n = 5  # número de processos
+r = 3  # repetições por processo
 k = 2  # segundos na região crítica
 F = 10  # tamanho fixo da mensagem
 ip = '127.0.0.1'

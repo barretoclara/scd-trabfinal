@@ -60,7 +60,6 @@ class Coordinator:
         self.attended_count = {}
         self.lock = threading.Lock()
         self.running = True
-        self.current_grant = None  # Controla qual processo tem o grant
         self.logfile = 'coordenador_log.txt'
         with open(self.logfile, 'w', encoding="utf-8") as f:
             f.write("Log do Coordenador\n")
@@ -80,6 +79,7 @@ class Coordinator:
                 break
 
     def handle_process(self, conn):
+        import random
         process_id = None
         while self.running:
             try:
@@ -94,63 +94,75 @@ class Coordinator:
                     with self.lock:
                         log_message(self.logfile, msg_type,
                                     process_id, f"RECEBIDO: {msg}")
-                        self.request_queue.put((process_id, conn))
+                        if self.request_queue.empty():
+                            self.request_queue.put((process_id, conn))
+                            print(self.request_queue.queue)
+                            base = f"2|{process_id}|"
+                            fill_len = self.F - len(base)
+                            filler = ''.join(random.choices('0123456789', k=fill_len))
+                            grant_msg = base + filler
+                            try:
+                                conn.sendall(grant_msg.encode())
+                                log_message(self.logfile, '2', process_id,
+                                            f"ENVIADO: {grant_msg}")
+                            except Exception as e:
+                                print(f"[handle_process] Erro ao enviar grant: {e}")
+                        else:
+                            self.request_queue.put((process_id, conn))
+                            print(self.request_queue.queue)
+                    time.sleep(0.05)
                 elif msg_type == '3':  # RELEASE
-                    with self.lock:
+                    with self.lock: 
+                        self.request_queue.get() #remove da fila
+                        print(self.request_queue.queue)
                         log_message(self.logfile, msg_type,
                                     process_id, f"RECEBIDO: {msg}")
-                        if process_id == self.current_grant:
-                            self.current_grant = None  # Libera o grant
                         self.attended_count[process_id] = self.attended_count.get(
                             process_id, 0) + 1
+                        if not self.request_queue.empty():
+                            process_id, conn = self.request_queue.queue[0]
+                            base = f"2|{process_id}|"
+                            fill_len = self.F - len(base)
+                            filler = ''.join(random.choices('0123456789', k=fill_len))
+                            grant_msg = base + filler
+                            try:
+                                conn.sendall(grant_msg.encode())
+                                log_message(self.logfile, '2', process_id,
+                                            f"ENVIADO: {grant_msg}")
+                            except Exception as e:
+                                print(f"[handle_process] Erro ao enviar grant: {e}")
+                    time.sleep(0.05)
             except Exception as e:
                 if self.running:
                     print(f"[handle_process] Erro: {e}")
                 break
-
-    def mutual_exclusion(self):
-        import random
-        while self.running:
-            with self.lock:
-                if not self.request_queue.empty() and self.current_grant is None:
-                    process_id, conn = self.request_queue.get()
-                    base = f"2|{process_id}|"
-                    fill_len = self.F - len(base)
-                    filler = ''.join(random.choices('0123456789', k=fill_len))
-                    grant_msg = base + filler
-                    try:
-                        conn.sendall(grant_msg.encode())
-                        self.current_grant = process_id  # Marca qual processo tem o grant
-                        log_message(self.logfile, '2', process_id,
-                                    f"ENVIADO: {grant_msg}")
-                    except Exception as e:
-                        print(f"[mutual_exclusion] Erro ao enviar grant: {e}")
-            time.sleep(0.05)
 
     def interface(self):
         try:
             while self.running:
                 try:
                     cmd = input(
-                        "[coordenador] Comando (fila/contagem/sair): ").strip()
+                        "[coordenador] Comandos: \n[1]fila\n[2]contagem\n[3]sair\n").strip()
                 except (EOFError, KeyboardInterrupt):
                     print("\nEncerrando interface do coordenador...")
                     self.running = False
                     self.server_socket.close()
                     break
 
-                if cmd == 'fila':
+                if cmd == '1':
                     with self.lock:
                         fila = list(self.request_queue.queue)
                         print("Fila de pedidos:", [pid for pid, _ in fila])
-                elif cmd == 'contagem':
+                elif cmd == '2':
                     with self.lock:
                         print("Atendimentos por processo:", self.attended_count)
-                elif cmd == 'sair':
+                elif cmd == '3':
                     self.running = False
                     self.server_socket.close()
                     print("Encerrando coordenador...")
                     break
+                else:
+                    print("Comando não reconhecido")
         except Exception as e:
             print(f"[interface] Finalizando por exceção: {e}")
 
@@ -159,7 +171,6 @@ def run_coordenador(F, port, n):
     coord = Coordinator(F, port, n)
     threads = [
         threading.Thread(target=coord.accept_connections),
-        threading.Thread(target=coord.mutual_exclusion),
         threading.Thread(target=coord.interface)
     ]
     for t in threads:
@@ -189,7 +200,9 @@ def run_processo(F, ip, port, r, k, process_id):
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         with open('resultado.txt', 'a') as f:
             f.write(f"{process_id} {now}\n")
-        time.sleep(k)
+        dorme = random.randint(1,k)+random.random()
+        print(f"{process_id}| dormindo por: {dorme}")
+        time.sleep(dorme)
         base = f"3|{process_id}|"
 
         fill_len = F - len(base)
