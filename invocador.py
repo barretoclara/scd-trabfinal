@@ -39,11 +39,29 @@ def main():
 # ================= COORDENADOR ===================
 
 
+from datetime import datetime
+import time
+import queue
+import threading
+import socket
+import random
+
 def log_message(logfile, msg_type, process_id, info):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
     with open(logfile, 'a') as f:
         f.write(f"{now} | {msg_type} | {process_id} | {info}\n")
 
+def recv_all(sock, F):
+    data = b''
+    while len(data) < F:
+        try:
+            packet = sock.recv(F - len(data))
+        except Exception as e:
+            return None
+        if not packet:
+            return None
+        data += packet
+    return data
 
 class Coordinator:
     def __init__(self, F, port, n):
@@ -51,8 +69,7 @@ class Coordinator:
         self.port = port
         self.n = n
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(
-            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind(('0.0.0.0', port))
         self.server_socket.listen(n)
         self.connections = {}
@@ -63,86 +80,85 @@ class Coordinator:
         self.logfile = 'coordenador_log.txt'
         with open(self.logfile, 'w', encoding="utf-8") as f:
             f.write("Log do Coordenador\n")
-            f.write(
-                "Formato: Timestamp | Tipo | ID do Processo | Informação: id tipo de mensagem|id processo|mensagem\n")
+            f.write("Formato: Timestamp | Tipo | ID do Processo | Informação\n")
         open('resultado.txt', 'w')
 
     def accept_connections(self):
         while self.running:
             try:
                 conn, addr = self.server_socket.accept()
-                threading.Thread(target=self.handle_process,
-                                 args=(conn,)).start()
+                threading.Thread(target=self.handle_process, args=(conn,)).start()
             except Exception as e:
                 if self.running:
                     print(f"[accept_connections] Erro: {e}")
                 break
 
     def handle_process(self, conn):
-        import random
         process_id = None
         while self.running:
             try:
-                data = conn.recv(self.F)
+                data = recv_all(conn, self.F)
                 if not data:
                     break
-                msg = data.decode().strip()
+
+                msg = data.decode()
                 parts = msg.split('|')
                 msg_type = parts[0]
                 process_id = parts[1] if len(parts) > 1 else 'unknown'
+
                 if msg_type == '1':  # REQUEST
                     with self.lock:
-                        log_message(self.logfile, msg_type,
-                                    process_id, f"RECEBIDO: {msg}")
-                        if self.request_queue.empty():
-                            self.request_queue.put((process_id, conn))
-                            print(self.request_queue.queue)
-                            base = f"2|{process_id}|"
-                            fill_len = self.F - len(base)
-                            filler = ''.join(random.choices('0123456789', k=fill_len))
-                            grant_msg = base + filler
-                            try:
-                                conn.sendall(grant_msg.encode())
-                                log_message(self.logfile, '2', process_id,
-                                            f"ENVIADO: {grant_msg}")
-                            except Exception as e:
-                                print(f"[handle_process] Erro ao enviar grant: {e}")
-                        else:
-                            self.request_queue.put((process_id, conn))
-                            print(self.request_queue.queue)
-                    time.sleep(0.05)
+                        log_message(self.logfile, msg_type, process_id, f"RECEBIDO: {msg}")
+                        self.request_queue.put((process_id, conn))
+
+                        if self.request_queue.qsize() == 1:
+                            self.enviar_grant(process_id, conn)
+
                 elif msg_type == '3':  # RELEASE
-                    with self.lock: 
-                        self.request_queue.get() #remove da fila
-                        print(self.request_queue.queue)
-                        log_message(self.logfile, msg_type,
-                                    process_id, f"RECEBIDO: {msg}")
-                        self.attended_count[process_id] = self.attended_count.get(
-                            process_id, 0) + 1
+                    with self.lock:
                         if not self.request_queue.empty():
-                            process_id, conn = self.request_queue.queue[0]
-                            base = f"2|{process_id}|"
-                            fill_len = self.F - len(base)
-                            filler = ''.join(random.choices('0123456789', k=fill_len))
-                            grant_msg = base + filler
-                            try:
-                                conn.sendall(grant_msg.encode())
-                                log_message(self.logfile, '2', process_id,
-                                            f"ENVIADO: {grant_msg}")
-                            except Exception as e:
-                                print(f"[handle_process] Erro ao enviar grant: {e}")
-                    time.sleep(0.05)
+                            self.request_queue.get()
+                        log_message(self.logfile, msg_type, process_id, f"RECEBIDO: {msg}")
+                        self.attended_count[process_id] = self.attended_count.get(process_id, 0) + 1
+
+                        if not self.request_queue.empty():
+                            prox_id, prox_conn = self.request_queue.queue[0]
+                            self.enviar_grant(prox_id, prox_conn)
+
+                time.sleep(0.05)
             except Exception as e:
                 if self.running:
                     print(f"[handle_process] Erro: {e}")
                 break
 
+        try:
+            conn.close()
+        except:
+            pass
+
+    def enviar_grant(self, process_id, conn):
+        try:
+            base = f"2|{process_id}|"
+            fill_len = self.F - len(base)
+            filler = ''.join(random.choices('0123456789', k=fill_len))
+            grant_msg = base + filler
+            conn.sendall(grant_msg.encode())
+            log_message(self.logfile, '2', process_id, f"ENVIADO: {grant_msg}")
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            print(f"[enviar_grant] Falha ao enviar para {process_id}: {e}")
+            # Remove processo da fila se não for possível enviar
+            nova_fila = queue.Queue()
+            while not self.request_queue.empty():
+                pid, c = self.request_queue.get()
+                if pid != process_id:
+                    nova_fila.put((pid, c))
+            self.request_queue = nova_fila
+
     def interface(self):
         try:
             while self.running:
                 try:
-                    cmd = input(
-                        "[coordenador] Comandos: \n[1]fila\n[2]contagem\n[3]sair\n").strip()
+                    cmd = input("[coordenador] Comandos: \n[1]fila\n[2]contagem\n[3]sair\n").strip()
                 except (EOFError, KeyboardInterrupt):
                     print("\nEncerrando interface do coordenador...")
                     self.running = False
@@ -165,7 +181,6 @@ class Coordinator:
                     print("Comando não reconhecido")
         except Exception as e:
             print(f"[interface] Finalizando por exceção: {e}")
-
 
 def run_coordenador(F, port, n):
     coord = Coordinator(F, port, n)
