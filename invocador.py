@@ -49,6 +49,8 @@ class Coordinator:
         with open(self.logfile, 'w',encoding="utf-8") as f:
             f.write("Log do Coordenador\n")
             f.write("Formato: Timestamp | Tipo | ID do Processo | Informação: id tipo de mensagem|id processo|mensagem\n")
+        f = open('resultado.txt','x')
+        f.close()
 
     def accept_connections(self):
         while self.running:

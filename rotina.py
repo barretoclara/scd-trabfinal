@@ -1,4 +1,3 @@
-n = 3  # numero de processos
 import subprocess
 import random
 import time
@@ -14,17 +13,16 @@ ids = random.sample(range(1, 100), n)
 procs = []
 
 try:
-    # Start coordinator
     procs.append(subprocess.Popen([
-        'python', 'main.py',
+        'python', 'invocador.py',
         '--role', 'coordenador',
         '--F', str(F),
         '--port', str(port),
         '--n', str(n)
     ]))
-    time.sleep(1)  # Give coordinator a moment to start
+    time.sleep(1) # Aguardar coordenador iniciar
 
-    # Start processes
+    # Iniciar processos
     for process_id in ids:
         procs.append(subprocess.Popen([
             'python', 'main.py',
@@ -39,6 +37,7 @@ try:
 
     for p in procs:
         p.wait()
+        
 except KeyboardInterrupt:
     print("\nParando todos os processos...")
     for p in procs:
