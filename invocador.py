@@ -66,6 +66,7 @@ class Coordinator:
             f.write("Log do Coordenador\n")
             f.write(
                 "Formato: Timestamp | Tipo | ID do Processo | Informação: id tipo de mensagem|id processo|mensagem\n")
+        open('resultado.txt', 'w')
 
     def accept_connections(self):
         while self.running:
