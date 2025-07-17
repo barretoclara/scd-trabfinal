@@ -213,9 +213,9 @@ def run_processo(F, ip, port, r, k, process_id):
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         with open('resultado.txt', 'a') as f:
             f.write(f"{process_id} {now}\n")
-        dorme = random.randint(1,k)+random.random()
+        #dorme = random.randint(1,k)+random.random()
         # Simula o tempo na região crítica
-        time.sleep(dorme)
+        #time.sleep(dorme)
         base = f"3|{process_id}|"
 
         fill_len = F - len(base)
