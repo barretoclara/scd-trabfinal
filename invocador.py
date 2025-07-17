@@ -124,8 +124,6 @@ class Coordinator:
                         if not self.request_queue.empty():
                             prox_id, prox_conn = self.request_queue.queue[0]
                             self.enviar_grant(prox_id, prox_conn)
-
-                time.sleep(0.05)
             except Exception as e:
                 if self.running:
                     print(f"[handle_process] Erro: {e}")
@@ -216,7 +214,7 @@ def run_processo(F, ip, port, r, k, process_id):
         with open('resultado.txt', 'a') as f:
             f.write(f"{process_id} {now}\n")
         dorme = random.randint(1,k)+random.random()
-        print(f"{process_id}| dormindo por: {dorme}")
+        # Simula o tempo na região crítica
         time.sleep(dorme)
         base = f"3|{process_id}|"
 
@@ -224,6 +222,8 @@ def run_processo(F, ip, port, r, k, process_id):
         filler = ''.join(random.choices('0123456789', k=fill_len))
         rel_msg = base + filler
         s.sendall(rel_msg.encode())
+        # Simula o tempo de espera antes de enviar o próximo pedido
+        time.sleep(random.randint(0,k)+random.random())
     s.close()
 
 
